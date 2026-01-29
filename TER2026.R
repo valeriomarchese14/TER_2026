@@ -1,60 +1,97 @@
-library(mice)
 library(dplyr)
 library(tidyr)
+library(mice)
 
+#----nettoyage-----
+df <- read.csv("BDD_2026.csv", sep = ";", fileEncoding = "latin1", stringsAsFactors = TRUE)
 
-data<-read.csv2("BDD_2026.csv", fileEncoding = "latin1")
-summary(data)
-str(data)
+# Gestion des vides
+df[df == ""] <- NA
 
-# conversion des colonnes de coûts chr -> num
-data$cout.baseline=as.numeric(data$cout.baseline)
-data$cout.aprés=as.numeric(data$cout.aprés)
+# Gestion des zéros structurels
+df <- df %>%
+  mutate(
+    cout.baseline = ifelse(visite != "Baseline", 0, cout.baseline),
+    cout.aprés = ifelse(visite == "Baseline", 0, cout.aprés)
+  )
 
-data[data==""]<-NA
-data[data==" "]<-NA
+#----imputation----
+pred_matrix <- df %>% select(-Identifiant.patient)
+imputed_obj <- mice(pred_matrix, m = 1, method = 'pmm', seed = 123, print = FALSE)
+df_complet <- complete(imputed_obj)
+df_complet$Identifiant.patient <- df$Identifiant.patient
 
-data <- data %>%
-  mutate(cout.baseline = ifelse(visite != "Baseline", 0, cout.baseline),
-         cout.aprés = ifelse(visite == "Baseline", 0, cout.aprés))
-
-pred_matrice <- data %>% select(-Identifiant.patient)
-imputation<- mice(pred_matrice, m = 1, method = 'pmm', seed = 123, print = FALSE)
-df_complet <- complete(imputation)
-
-# on remet l'identifiant du patient
-df_complet$Identifiant.patient <- data$Identifiant.patient
-
-
-colSums(is.na(df_complet))
-
-#-------calcul de l'utilité-----
-
-
-calculer_utilite <- function(mob, soin, act, doul, anx) {
-  score_brut <- (mob + soin + act + doul + anx - 5) 
-  utilite <- 1 - (score_brut * 0.05) 
-  return(utilite)
-}
+#----calcul utilité-----
 
 df_complet <- df_complet %>%
   mutate(
-    utilite = calculer_utilite(EQ5D.mobilité, EQ5D.soins, EQ5D.activites, 
-                               EQ5D.douleur, EQ5D.anxiete)
+    # --- MOBILITÉ ---
+    c_mob = case_when(
+      EQ5D.mobilité == 1 ~ 0,
+      EQ5D.mobilité == 2 ~ 0.03759,  
+      EQ5D.mobilité == 3 ~ 0.04774,  
+      EQ5D.mobilité == 4 ~ 0.17949,  
+      EQ5D.mobilité == 5 ~ 0.32509   
+    ),
+    
+    # --- AUTONOMIE ---
+    c_soins = case_when(
+      EQ5D.soins == 1 ~ 0,
+      EQ5D.soins == 2 ~ 0.03656,
+      EQ5D.soins == 3 ~ 0.050781,
+      EQ5D.soins == 4 ~ 0.172251,
+      EQ5D.soins == 5 ~ 0.258331
+    ),
+    
+    # --- ACTIVITÉS ---
+    c_act = case_when(
+      EQ5D.activites == 1 ~ 0,
+      EQ5D.activites == 2 ~ 0.03313,
+      EQ5D.activites == 3 ~ 0.03979,
+      EQ5D.activites == 4 ~ 0.15689,
+      EQ5D.activites == 5 ~ 0.24005
+    ),
+    
+    # --- DOULEUR / GÊNE ---
+    c_doul = case_when(
+      EQ5D.douleur == 1 ~ 0,
+      EQ5D.douleur == 2 ~ 0.02198,
+      EQ5D.douleur == 3 ~ 0.04704,
+      EQ5D.douleur == 4 ~ 0.26374,
+      EQ5D.douleur == 5 ~ 0.44399
+    ),
+    
+    # --- ANXIÉTÉ / DÉPRESSION ---
+    c_anx = case_when(
+      EQ5D.anxiete == 1 ~ 0,
+      EQ5D.anxiete == 2 ~ 0.02046,
+      EQ5D.anxiete == 3 ~ 0.04683,
+      EQ5D.anxiete == 4 ~ 0.20005,
+      EQ5D.anxiete == 5 ~ 0.25803
+    ),
+    
+   
+    # Utilité = 1 - (somme des décréments)
+    utilite = 1 - (c_mob + c_soins + c_act + c_doul + c_anx)
   )
 
-#-----calcul des QALY-----
-df_final <- df_complet %>% 
+# -----QALY----
+df_final <- df_complet %>%
   arrange(Identifiant.patient, mois) %>%
   group_by(Identifiant.patient) %>%
   mutate(
     delta_temps = (mois - lag(mois, default = 0)) / 12,
+    
     utilite_moyenne = (utilite + lag(utilite, default = first(utilite))) / 2,
+    
     qaly_periode = delta_temps * utilite_moyenne
   ) %>%
-  summarise(
-    bras = first(bras),
-    cout_total = sum(cout.baseline + cout.aprés, na.rm = TRUE),
-    qaly_total = sum(qaly_periode, na.rm = TRUE)
-  )
-aggregate(cbind(cout_total, qaly_total) ~ bras, data = df_final, mean) #comparaison rapide des deux groupes
+summarise(
+  bras = first(bras),
+  cout_total = sum(cout.baseline + cout.aprés, na.rm = TRUE),
+  qaly_total = sum(qaly_periode, na.rm = TRUE) # Somme des QALYs de chaque période
+)
+
+
+# Comparaison rapide des moyennes par bras
+aggregate(cbind(cout_total, qaly_total) ~ bras, data = df_final, mean)
