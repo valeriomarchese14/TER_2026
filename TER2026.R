@@ -1,9 +1,49 @@
 library(dplyr)
 library(tidyr)
 library(mice)
+library(dplyr)
+library(gtsummary)
 
-#----nettoyage-----
+#----analyse descriptive----
 df <- read.csv("BDD_2026.csv", sep = ";", fileEncoding = "latin1", stringsAsFactors = TRUE)
+
+#Les individus ont l'air de ne pas avoir changé d'imc, de statut tabgagique et de profession.
+#On se concentre alors sur leurs données en baseline
+df_baseline <- df %>% 
+  filter(visite == "Baseline") %>%
+  select(bras, `Age.a.l.inclusion`, sexe, IMC, `statut.tabagique`, Profession)
+
+stats_cont <- df_baseline %>%
+  group_by(bras) %>%
+  summarise(
+    N = n(),
+    Age_Moy = mean(`Age.a.l.inclusion`, na.rm = TRUE),
+    Age_SD  = sd(`Age.a.l.inclusion`, na.rm = TRUE),
+    Age_med = median(`Age.a.l.inclusion`, na.rm = TRUE),
+    IMC_Moy = mean(IMC, na.rm = TRUE),
+    IMC_SD  = sd(IMC, na.rm = TRUE),
+    IMC_med= median(IMC, na.rm=TRUE)
+  )
+
+print(stats_cont)
+
+#on remarque un surpoids général, un age tres varié avec un grand ecart type
+
+# 3. Statistiques pour les variables Catégorielles (Nombre et %)
+print("--- Répartition Sexe ---")
+table_sexe <- table(df_baseline$bras, df_baseline$sexe)
+print(table_sexe)
+colSums(table_sexe)
+print(prop.table(table_sexe, margin = 1) * 100) # Pourcentages par ligne
+
+#il y a plus de femmes que d'homme généralement mais l'écart est grand dans le groupe B 
+
+print("--- Répartition Tabac ---")
+table_tabac <- table(df_baseline$bras, df_baseline$statut.tabagique)
+print(table_tabac)
+colSums(table_tabac)
+print(prop.table(table_tabac, margin = 1) * 100)
+#----nettoyage-----
 
 # Gestion des vides
 df[df == ""] <- NA
@@ -84,7 +124,8 @@ df_final <- df_complet %>%
     
     utilite_moyenne = (utilite + lag(utilite, default = first(utilite))) / 2,
     
-    qaly_periode = delta_temps * utilite_moyenne
+    qaly_periode = delta_temDans un premier temps, une analyse descriptive de la base de données sera réalisée. Les résultats seront présentés à la fois pour l’ensemble de la population et séparément pour chacun des deux groupes de traitement.
+    Les caractéristiques individuelles des patients (âge, sexe, facteurs de risque …etc.) seront décrites à l’aide des indicateurs statistiques adaptés (moyenne, médiane, écart-type, effectifs …etc.). Pour d’autres variables,ps * utilite_moyenne
   ) %>%
 summarise(
   bras = first(bras),
