@@ -124,8 +124,7 @@ df_final <- df_complet %>%
     
     utilite_moyenne = (utilite + lag(utilite, default = first(utilite))) / 2,
     
-    qaly_periode = delta_temDans un premier temps, une analyse descriptive de la base de données sera réalisée. Les résultats seront présentés à la fois pour l’ensemble de la population et séparément pour chacun des deux groupes de traitement.
-    Les caractéristiques individuelles des patients (âge, sexe, facteurs de risque …etc.) seront décrites à l’aide des indicateurs statistiques adaptés (moyenne, médiane, écart-type, effectifs …etc.). Pour d’autres variables,ps * utilite_moyenne
+    qaly_periode = delta_temps* utilite_moyenne
   ) %>%
 summarise(
   bras = first(bras),
