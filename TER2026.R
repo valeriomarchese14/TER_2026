@@ -3,6 +3,7 @@ library(tidyr)
 library(mice)
 library(dplyr)
 library(gtsummary)
+library(margins)
 
 #----analyse descriptive----
 df <- read.csv("BDD_2026.csv", sep = ";", fileEncoding = "latin1", stringsAsFactors = TRUE)
@@ -56,10 +57,29 @@ df <- df %>%
   )
 
 #----imputation----
-pred_matrix <- df %>% select(-Identifiant.patient)
-imputed_obj <- mice(pred_matrix, m = 1, method = 'pmm', seed = 123, print = FALSE)
-df_complet <- complete(imputed_obj)
-df_complet$Identifiant.patient <- df$Identifiant.patient
+# Séparation des bras
+df_A <- df %>% filter(bras == "A")
+df_B <- df %>% filter(bras == "B")
+
+# Imputation séparée 
+imp_A <- mice(df_A %>% select(-Identifiant.patient), m = 5, method = 'pmm', seed = 123, print = FALSE)
+imp_B <- mice(df_B %>% select(-Identifiant.patient), m = 5, method = 'pmm', seed = 123, print = FALSE)
+
+# Création des bases complètes
+df_complet_A <- complete(imp_A, 1)
+df_complet_B <- complete(imp_B, 1)
+
+# Réintégration de l'identifiant et du bras
+# On reprend la colonne ID des dataframes originaux (df_A et df_B)
+df_complet_A$Identifiant.patient <- df_A$Identifiant.patient
+df_complet_A$bras <- "A"
+
+df_complet_B$Identifiant.patient <- df_B$Identifiant.patient
+df_complet_B$bras <- "B"
+
+#Recombinaison finale
+df_complet <- bind_rows(df_complet_A, df_complet_B)
+
 
 #----calcul utilité-----
 
@@ -135,3 +155,11 @@ summarise(
 
 # Comparaison rapide des moyennes par bras
 aggregate(cbind(cout_total, qaly_total) ~ bras, data = df_final, mean)
+
+#model gamma log pour les couts
+model_cout <- glm(cout_total ~ bras, 
+                  data = df_final, 
+                  family = Gamma(link = "log"))
+
+summary(model_cout)
+margins(model_cout)
