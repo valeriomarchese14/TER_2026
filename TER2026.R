@@ -4,6 +4,10 @@ library(mice)
 library(dplyr)
 library(gtsummary)
 library(margins)
+library(ggplot2)
+library(data.table)
+library(hesim)
+library(scales)
 
 #----analyse descriptive----
 df <- read.csv("BDD_2026.csv", sep = ";", fileEncoding = "latin1", stringsAsFactors = TRUE)
@@ -206,4 +210,96 @@ ICER <- delta_C / delta_E
 
 #1 qaly gagné dans le bras A représente 70000 euros. le bras A est mieux mais plus cher.
 #le bras B est moins bien mais moins cher.
-margins(model_cout)
+
+#Bootstrap
+B <- 1000
+set.seed(2026)
+
+cost_A_boot <- numeric(B)
+cost_B_boot <- numeric(B)
+qaly_A_boot <- numeric(B)
+qaly_B_boot <- numeric(B)
+
+for(i in 1:B) {
+  df_boot <- df_final[sample(1:nrow(df_final), replace = TRUE), ]
+  
+  # Modèles
+  mod_qaly <- glm(qaly_total ~ bras, data = df_boot, family = gaussian(link = "identity"))
+  mod_cout <- glm(cout_total ~ bras, data = df_boot, family = Gamma(link = "log"))
+  
+  # Prédictions des moyennes pour le Bras A
+  qaly_A_boot[i] <- predict(mod_qaly, newdata = data.frame(bras = "A"), type = "response")
+  cost_A_boot[i] <- predict(mod_cout, newdata = data.frame(bras = "A"), type = "response")
+  
+  # Prédictions des moyennes pour le Bras B
+  qaly_B_boot[i] <- predict(mod_qaly, newdata = data.frame(bras = "B"), type = "response")
+  cost_B_boot[i] <- predict(mod_cout, newdata = data.frame(bras = "B"), type = "response")
+}
+
+# Formatage des données pour HESIM
+df_hesim <- data.table(
+  sample = rep(1:B, 2),
+  strategy_id = rep(c("Bras A", "Bras B"), each = B),
+  grp_id = 1, # Un seul groupe de patients ici
+  c = c(cost_A_boot, cost_B_boot), # Coûts
+  e = c(qaly_A_boot, qaly_B_boot)  # Efficacité (QALYs)
+)
+
+# L'analyse médico-économique avec hesim
+wtp_thresholds <- seq(0, 100000, by = 5000)
+
+cea_result <- cea(
+  x = df_hesim, 
+  k = wtp_thresholds, 
+  sample = "sample", 
+  strategy = "strategy_id", 
+  grp = "grp_id", 
+  e = "e", 
+  c = "c"
+)
+summary(cea_result)
+
+# On définit le Bras A comme traitement de référence pour la comparaison
+cea_pw_result <- cea_pw(
+  x = df_hesim,                  
+  k = wtp_thresholds, 
+  comparator = "Bras A",      
+  sample = "sample", 
+  strategy = "strategy_id", 
+  grp = "grp_id", 
+  e = "e", 
+  c = "c"
+)
+
+df_delta <- cea_pw_result$delta
+
+# Création du graphique avec ggplot
+ggplot(data = df_delta, aes(x = ie, y = ic)) +
+  geom_point(alpha = 0.5, color = "#2c3e50") +
+
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red", size = 0.8) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red", size = 0.8) 
+  labs(
+    title = "Plan Différentiel Coût-Efficacité (1000 simulations)",
+    subtitle = "Comparaison : Bras B vs Bras A",
+    x = "Différence d'Efficacité (Delta QALYs)",
+    y = "Différence de Coûts (Delta €)"
+  ) +
+  theme_minimal()
+
+df_ceac <- cea_pw_result$ceac
+ggplot(data = df_ceac, aes(x = k, y = prob, color = strategy_id)) +
+  geom_line(size = 1.2) +
+  scale_y_continuous(labels = percent_format(accuracy = 1), limits = c(0, 1)) +
+  scale_x_continuous(labels = label_number(big.mark = " ")) +
+  labs(
+    title = "Courbe d'Acceptabilité (CEAC)",
+    x = "Consentement à payer pour 1 QALY supplémentaire (€)",
+    y = "Probabilité d'être la stratégie la plus coût-efficace",
+    color = "Stratégie"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
