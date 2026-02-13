@@ -148,6 +148,9 @@ df_final <- df_complet %>%
   ) %>%
 summarise(
   bras = first(bras),
+  Age = first(`Age.a.l.inclusion`), 
+  sexe = first(sexe),
+  IMC = first(IMC),
   cout_total = sum(cout.baseline + cout.aprés, na.rm = TRUE),
   qaly_total = sum(qaly_periode, na.rm = TRUE) # Somme des QALYs de chaque période
 )
@@ -156,10 +159,51 @@ summarise(
 # Comparaison rapide des moyennes par bras
 aggregate(cbind(cout_total, qaly_total) ~ bras, data = df_final, mean)
 
-#model gamma log pour les couts
-model_cout <- glm(cout_total ~ bras, 
-                  data = df_final, 
-                  family = Gamma(link = "log"))
+# Modèle 1 : gamma
+model_cout_simple <- glm(cout_total ~ bras, 
+                         data = df_final, 
+                         family = Gamma(link = "log"))
+summary(model_cout_simple)
+margins(model_cout_simple)
 
-summary(model_cout)
+# Modèle 2 : Modèle ajusté (Gamma + variables cliniques)
+# Est-ce que le coût dépend aussi de l'âge ou de l'IMC initial ?
+model_cout_ajuste <- glm(cout_total ~ bras + Age + sexe + IMC, 
+                         data = df_final, 
+                         family = Gamma(link = "log"))
+summary(model_cout_ajuste)
+margins(model_cout_ajuste)
+
+# Modèle 3 : Changement de distribution (Inverse-Gaussienne)
+model_cout_invG <- glm(cout_total ~ bras, 
+                       data = df_final, 
+                       family = inverse.gaussian(link = "log"))
+
+summary(model_cout_invG)
+margins(model_cout_invG)
+
+# Le meilleur modèle est le premier ( aic plus bas). Les autres variables autres que le bras
+# n'influence pas le cout. La distribution est bien gamma.
+#En moyenne, un individu du bras B coute 9308 euros de moins mais qaly plus faible
+
+
+# Modèle GLM Gaussien pour l'efficacité 
+model_qaly_gauss <- glm(qaly_total ~ bras, 
+                        data = df_final, 
+                        family = gaussian(link = "identity"))
+
+summary(model_qaly_gauss)
+margins(model_qaly_gauss)
+shapiro.test(residuals(model_qaly_gauss)) #les qaly suivent bien une loi normale.
+# On perd 0.13 qaly en moyenne dans le bras b
+
+delta_E <- coef(model_qaly_gauss)["brasB"]
+summary_margins_cout <- summary(margins(model_cout_simple))
+delta_C <- summary_margins_cout$AME[summary_margins_cout$factor == "brasB"]
+
+# Calcul du RDCR (ICER)
+ICER <- delta_C / delta_E
+
+#1 qaly gagné dans le bras A représente 70000 euros. le bras A est mieux mais plus cher.
+#le bras B est moins bien mais moins cher.
 margins(model_cout)
