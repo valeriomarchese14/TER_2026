@@ -32,6 +32,12 @@ stats_cont <- df_baseline %>%
 
 print(stats_cont)
 
+# Comparaison de l'Age
+t.test(Age.a.l.inclusion ~ bras, data = df_baseline, var.equal = TRUE)
+
+# Comparaison de l'IMC
+t.test(IMC ~ bras, data = df_baseline, var.equal = TRUE)
+
 #on remarque un surpoids général, un age tres varié avec un grand ecart type
 
 # 3. Statistiques pour les variables Catégorielles (Nombre et %)
@@ -41,6 +47,9 @@ print(table_sexe)
 colSums(table_sexe)
 print(prop.table(table_sexe, margin = 1) * 100) # Pourcentages par ligne
 
+test_sexe <- chisq.test(table_sexe)
+print(test_sexe)
+
 #il y a plus de femmes que d'homme généralement mais l'écart est grand dans le groupe B 
 
 print("--- Répartition Tabac ---")
@@ -48,6 +57,9 @@ table_tabac <- table(df_baseline$bras, df_baseline$statut.tabagique)
 print(table_tabac)
 colSums(table_tabac)
 print(prop.table(table_tabac, margin = 1) * 100)
+
+test_tabac <- chisq.test(table_tabac)
+print(test_tabac)
 #----nettoyage-----
 
 # Gestion des vides
@@ -60,7 +72,7 @@ df <- df %>%
     cout.aprés = ifelse(visite == "Baseline", 0, cout.aprés)
   )
 
-#----imputation----
+#----imputation---- 
 # Séparation des bras
 df_A <- df %>% filter(bras == "A")
 df_B <- df %>% filter(bras == "B")
@@ -70,8 +82,16 @@ imp_A <- mice(df_A %>% select(-Identifiant.patient), m = 5, method = 'pmm', seed
 imp_B <- mice(df_B %>% select(-Identifiant.patient), m = 5, method = 'pmm', seed = 123, print = FALSE)
 
 # Création des bases complètes
-df_complet_A <- complete(imp_A, 1)
-df_complet_B <- complete(imp_B, 1)
+df_complet_A <- complete(imp_A, action = "long") %>%
+  group_by(.id) %>%
+  summarise(across(everything(), ~ if(is.numeric(.)) mean(., na.rm = TRUE) else first(.))) %>%
+  select(-.id) # On enlève l'ID technique de mice
+
+# Pour le Bras B
+df_complet_B <- complete(imp_B, action = "long") %>%
+  group_by(.id) %>%
+  summarise(across(everything(), ~ if(is.numeric(.)) mean(., na.rm = TRUE) else first(.))) %>%
+  select(-.id)
 
 # Réintégration de l'identifiant et du bras
 # On reprend la colonne ID des dataframes originaux (df_A et df_B)
@@ -81,9 +101,8 @@ df_complet_A$bras <- "A"
 df_complet_B$Identifiant.patient <- df_B$Identifiant.patient
 df_complet_B$bras <- "B"
 
-#Recombinaison finale
+# 5. Recombinaison finale
 df_complet <- bind_rows(df_complet_A, df_complet_B)
-
 
 #----calcul utilité-----
 
@@ -148,7 +167,7 @@ df_final <- df_complet %>%
     
     utilite_moyenne = (utilite + lag(utilite, default = first(utilite))) / 2,
     
-    qaly_periode = delta_temps* utilite_moyenne
+    qaly_periode = delta_temps * utilite_moyenne
   ) %>%
 summarise(
   bras = first(bras),
@@ -303,3 +322,4 @@ ggplot(data = df_ceac, aes(x = k, y = prob, color = strategy_id)) +
     legend.position = "bottom",
     panel.grid.minor = element_blank()
   )
+#creuser sem
