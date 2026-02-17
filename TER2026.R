@@ -44,6 +44,14 @@ t.test(IMC ~ bras, data = df_baseline, var.equal = TRUE)
 print("--- Répartition Sexe ---")
 table_sexe <- table(df_baseline$bras, df_baseline$sexe)
 print(table_sexe)
+barplot(t(table_sexe), 
+        main = "Répartition Hommes/Femmes par Bras",
+        xlab = "Bras de traitement", 
+        ylab = "Nombre de patients",
+        col = c("#ff9999", "#9999ff"), 
+        border = "white",           
+        space = 0.25,                 
+        legend.text = TRUE)
 colSums(table_sexe)
 print(prop.table(table_sexe, margin = 1) * 100) # Pourcentages par ligne
 
@@ -60,6 +68,25 @@ print(prop.table(table_tabac, margin = 1) * 100)
 
 test_tabac <- chisq.test(table_tabac)
 print(test_tabac)
+
+
+#---- tableau 1 -----
+table1 <- df_baseline %>%
+  tbl_summary(
+    by = bras, 
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})", # Moyenne (Écart-type)
+      all_categorical() ~ "{n} ({p}%)"    # Effectif (Pourcentage)
+    ),
+    label = list(
+      Age.a.l.inclusion ~ "Âge à l'inclusion",
+      statut.tabagique ~ "Statut Tabagique"
+    )
+  ) %>%
+  add_p() %>% # Ajoute les p-valeurs
+  bold_labels()
+table1
+
 #----nettoyage-----
 
 # Gestion des vides
@@ -81,82 +108,73 @@ df_B <- df %>% filter(bras == "B")
 imp_A <- mice(df_A %>% select(-Identifiant.patient), m = 5, method = 'pmm', seed = 123, print = FALSE)
 imp_B <- mice(df_B %>% select(-Identifiant.patient), m = 5, method = 'pmm', seed = 123, print = FALSE)
 
-# Création des bases complètes
-df_complet_A <- complete(imp_A, action = "long") %>%
-  group_by(.id) %>%
-  summarise(across(everything(), ~ if(is.numeric(.)) mean(., na.rm = TRUE) else first(.))) %>%
-  select(-.id) # On enlève l'ID technique de mice
+df_long_A <- complete(imp_A, action = "long")
 
-# Pour le Bras B
-df_complet_B <- complete(imp_B, action = "long") %>%
-  group_by(.id) %>%
-  summarise(across(everything(), ~ if(is.numeric(.)) mean(., na.rm = TRUE) else first(.))) %>%
-  select(-.id)
+# Réintégration de l'Identifiant 
+df_long_A$Identifiant.patient <- df_A$Identifiant.patient[df_long_A$.id]
 
-# Réintégration de l'identifiant et du bras
-# On reprend la colonne ID des dataframes originaux (df_A et df_B)
-df_complet_A$Identifiant.patient <- df_A$Identifiant.patient
-df_complet_A$bras <- "A"
-
-df_complet_B$Identifiant.patient <- df_B$Identifiant.patient
-df_complet_B$bras <- "B"
-
-# 5. Recombinaison finale
-df_complet <- bind_rows(df_complet_A, df_complet_B)
-
-#----calcul utilité-----
-
-df_complet <- df_complet %>%
+# Calcul des utilités par imputation
+df_long_A <- df_long_A %>%
   mutate(
-    # --- MOBILITÉ ---
-    c_mob = case_when(
-      EQ5D.mobilité == 1 ~ 0,
-      EQ5D.mobilité == 2 ~ 0.03759,  
-      EQ5D.mobilité == 3 ~ 0.04774,  
-      EQ5D.mobilité == 4 ~ 0.17949,  
-      EQ5D.mobilité == 5 ~ 0.32509   
-    ),
-    
-    # --- AUTONOMIE ---
-    c_soins = case_when(
-      EQ5D.soins == 1 ~ 0,
-      EQ5D.soins == 2 ~ 0.03656,
-      EQ5D.soins == 3 ~ 0.050781,
-      EQ5D.soins == 4 ~ 0.172251,
-      EQ5D.soins == 5 ~ 0.258331
-    ),
-    
-    # --- ACTIVITÉS ---
-    c_act = case_when(
-      EQ5D.activites == 1 ~ 0,
-      EQ5D.activites == 2 ~ 0.03313,
-      EQ5D.activites == 3 ~ 0.03979,
-      EQ5D.activites == 4 ~ 0.15689,
-      EQ5D.activites == 5 ~ 0.24005
-    ),
-    
-    # --- DOULEUR / GÊNE ---
-    c_doul = case_when(
-      EQ5D.douleur == 1 ~ 0,
-      EQ5D.douleur == 2 ~ 0.02198,
-      EQ5D.douleur == 3 ~ 0.04704,
-      EQ5D.douleur == 4 ~ 0.26374,
-      EQ5D.douleur == 5 ~ 0.44399
-    ),
-    
-    # --- ANXIÉTÉ / DÉPRESSION ---
-    c_anx = case_when(
-      EQ5D.anxiete == 1 ~ 0,
-      EQ5D.anxiete == 2 ~ 0.02046,
-      EQ5D.anxiete == 3 ~ 0.04683,
-      EQ5D.anxiete == 4 ~ 0.20005,
-      EQ5D.anxiete == 5 ~ 0.25803
-    ),
-    
-   
-    # Utilité = 1 - (somme des décréments)
+    c_mob = case_when(EQ5D.mobilité == 1 ~ 0, EQ5D.mobilité == 2 ~ 0.03759, EQ5D.mobilité == 3 ~ 0.04774, EQ5D.mobilité == 4 ~ 0.17949, EQ5D.mobilité == 5 ~ 0.32509, TRUE ~ 0),
+    c_soins = case_when(EQ5D.soins == 1 ~ 0, EQ5D.soins == 2 ~ 0.03656, EQ5D.soins == 3 ~ 0.050781, EQ5D.soins == 4 ~ 0.172251, EQ5D.soins == 5 ~ 0.258331, TRUE ~ 0),
+    c_act = case_when(EQ5D.activites == 1 ~ 0, EQ5D.activites == 2 ~ 0.03313, EQ5D.activites == 3 ~ 0.03979, EQ5D.activites == 4 ~ 0.15689, EQ5D.activites == 5 ~ 0.24005, TRUE ~ 0),
+    c_doul = case_when(EQ5D.douleur == 1 ~ 0, EQ5D.douleur == 2 ~ 0.02198, EQ5D.douleur == 3 ~ 0.04704, EQ5D.douleur == 4 ~ 0.26374, EQ5D.douleur == 5 ~ 0.44399, TRUE ~ 0),
+    c_anx = case_when(EQ5D.anxiete == 1 ~ 0, EQ5D.anxiete == 2 ~ 0.02046, EQ5D.anxiete == 3 ~ 0.04683, EQ5D.anxiete == 4 ~ 0.20005, EQ5D.anxiete == 5 ~ 0.25803, TRUE ~ 0),
     utilite = 1 - (c_mob + c_soins + c_act + c_doul + c_anx)
   )
+
+# Regroupement et moyenne
+df_complet_A <- df_long_A %>%
+  group_by(.id) %>%
+  summarise(
+    Identifiant.patient = first(Identifiant.patient), 
+    mois = first(mois),
+    visite = first(visite),
+    Age.a.l.inclusion = first(Age.a.l.inclusion),
+    sexe = first(sexe),
+    IMC = first(IMC),
+    cout.baseline = mean(cout.baseline, na.rm = TRUE),
+    cout.aprés = mean(cout.aprés, na.rm = TRUE),
+    utilite = mean(utilite, na.rm = TRUE)
+  ) %>%
+  mutate(bras = "A") %>%
+  select(-.id)
+
+df_long_B <- complete(imp_B, action = "long")
+
+# Réintégration de l'Identifiant 
+df_long_B$Identifiant.patient <- df_B$Identifiant.patient[df_long_B$.id]
+
+# Calcul des utilités par imputation
+df_long_B <- df_long_B %>%
+  mutate(
+    c_mob = case_when(EQ5D.mobilité == 1 ~ 0, EQ5D.mobilité == 2 ~ 0.03759, EQ5D.mobilité == 3 ~ 0.04774, EQ5D.mobilité == 4 ~ 0.17949, EQ5D.mobilité == 5 ~ 0.32509, TRUE ~ 0),
+    c_soins = case_when(EQ5D.soins == 1 ~ 0, EQ5D.soins == 2 ~ 0.03656, EQ5D.soins == 3 ~ 0.050781, EQ5D.soins == 4 ~ 0.172251, EQ5D.soins == 5 ~ 0.258331, TRUE ~ 0),
+    c_act = case_when(EQ5D.activites == 1 ~ 0, EQ5D.activites == 2 ~ 0.03313, EQ5D.activites == 3 ~ 0.03979, EQ5D.activites == 4 ~ 0.15689, EQ5D.activites == 5 ~ 0.24005, TRUE ~ 0),
+    c_doul = case_when(EQ5D.douleur == 1 ~ 0, EQ5D.douleur == 2 ~ 0.02198, EQ5D.douleur == 3 ~ 0.04704, EQ5D.douleur == 4 ~ 0.26374, EQ5D.douleur == 5 ~ 0.44399, TRUE ~ 0),
+    c_anx = case_when(EQ5D.anxiete == 1 ~ 0, EQ5D.anxiete == 2 ~ 0.02046, EQ5D.anxiete == 3 ~ 0.04683, EQ5D.anxiete == 4 ~ 0.20005, EQ5D.anxiete == 5 ~ 0.25803, TRUE ~ 0),
+    utilite = 1 - (c_mob + c_soins + c_act + c_doul + c_anx)
+  )
+
+# Regroupement et moyenne
+df_complet_B <- df_long_B %>%
+  group_by(.id) %>%
+  summarise(
+    Identifiant.patient = first(Identifiant.patient), 
+    mois = first(mois),
+    visite = first(visite),
+    Age.a.l.inclusion = first(Age.a.l.inclusion),
+    sexe = first(sexe),
+    IMC = first(IMC),
+    cout.baseline = mean(cout.baseline, na.rm = TRUE),
+    cout.aprés = mean(cout.aprés, na.rm = TRUE),
+    utilite = mean(utilite, na.rm = TRUE)
+  ) %>%
+  mutate(bras = "B") %>%
+  select(-.id)
+
+df_complet <- bind_rows(df_complet_A, df_complet_B)
 
 # -----QALY----
 df_final <- df_complet %>%
@@ -322,4 +340,4 @@ ggplot(data = df_ceac, aes(x = k, y = prob, color = strategy_id)) +
     legend.position = "bottom",
     panel.grid.minor = element_blank()
   )
-#creuser sem
+
