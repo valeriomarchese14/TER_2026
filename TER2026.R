@@ -219,7 +219,9 @@ ggplot(df_evol, aes(x = mois, y = utilite_moy, color = bras, group = bras)) +
 # Comparaison rapide des moyennes par bras
 aggregate(cbind(cout_total, qaly_total) ~ bras, data = df_final, mean)
 
+#----Modèles----
 
+# distribution des coûts
 hist(df_final$cout_total, main= "distribution des coûts", xlab= "coûts totaux")
 
 # Modèle 1 : gamma
@@ -230,7 +232,6 @@ summary(model_cout_simple)
 margins(model_cout_simple)
 
 # Modèle 2 : Modèle ajusté (Gamma + variables cliniques)
-# Est-ce que le coût dépend aussi de l'âge ou de l'IMC initial ?
 model_cout_ajuste <- glm(cout_total ~ bras + Age + sexe + IMC, 
                          data = df_final, 
                          family = Gamma(link = "log"))
@@ -248,10 +249,10 @@ margins(model_cout_invG)
 AIC(model_cout_ajuste, model_cout_simple)
 AIC(model_cout_ajuste, model_cout_invG)
 
-# Le meilleur modèle est le premier ( aic plus bas). Les autres variables autres que le bras
-# n'influence pas le cout. La distribution est bien gamma.
-#En moyenne, un individu du bras B coute 9308 euros de moins mais qaly plus faible
+# Le meilleur modèle est le premier (aic plus bas). Les autres variables autres que le bras n'influence pas le cout. La distribution est bien gamma.
+#En moyenne, un individu du bras B coute 9497 euros de moins mais qaly plus faible
 
+#test sur la loi des QALY
 shapiro.test(residuals(model_qaly_gauss)) 
 hist(df_final$qaly_total, main= "distribution des QALY", xlab= "QALY totaux")
 
@@ -265,6 +266,7 @@ model_qaly_gauss <- glm(qaly_total ~ bras,
 
 
 summary(model_qaly_gauss)
+margins(model_qaly_gauss)
 
 # Modèle GLM Gaussien ajusté au sexe pour l'efficacité 
 
@@ -299,7 +301,7 @@ AIC(model_qaly_gauss, model_qaly_gauss2)
 
 
 
-# On perd 0.13 qaly en moyenne dans le bras b
+# On perd 0.135 qaly en moyenne dans le bras b
 
 delta_E <- coef(model_qaly_gauss)["brasB"]
 summary_margins_cout <- summary(margins(model_cout_simple))
@@ -308,10 +310,10 @@ delta_C <- summary_margins_cout$AME[summary_margins_cout$factor == "brasB"]
 # Calcul du RDCR (ICER)
 ICER <- delta_C / delta_E
 
-#1 qaly gagné dans le bras A représente 70000 euros. le bras A est mieux mais plus cher.
+#1 qaly gagné dans le bras A représente 70369 euros. le bras A est mieux mais plus cher.
 #le bras B est moins bien mais moins cher.
 
-#Bootstrap
+#----Bootstrap----
 B <- 1000
 set.seed(2026)
 
@@ -378,12 +380,11 @@ ggplot(data = df_delta, aes(x = ie, y = ic)) +
   geom_point(alpha = 0.5, color = "#2c3e50") +
 
   geom_hline(yintercept = 0, linetype = "dashed", color = "red", size = 0.8) +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "red", size = 0.8) 
-  labs(
-    title = "Plan Différentiel Coût-Efficacité (1000 simulations)",
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red", size = 0.8) +
+  labs( title = "Plan Différentiel Coût-Efficacité (1000 simulations)",
     subtitle = "Comparaison : Bras B vs Bras A",
-    x = "Différence d'Efficacité (Delta QALYs)",
-    y = "Différence de Coûts (Delta €)"
+    x = "Différence d'Efficacité ",
+    y = "Différence de Coûts "
   ) +
   theme_minimal()
 
