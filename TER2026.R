@@ -8,6 +8,7 @@ library(ggplot2)
 library(data.table)
 library(hesim)
 library(scales)
+library(betareg)
 
 #----analyse descriptive----
 df <- read.csv("BDD_2026.csv", sep = ";", fileEncoding = "latin1", stringsAsFactors = TRUE)
@@ -196,9 +197,30 @@ summarise(
   qaly_total = sum(qaly_periode, na.rm = TRUE) # Somme des QALYs de chaque période
 )
 
+#Calcul des moyennes d'utilité par bras et par mois
+df_evol <- df_complet %>%
+  group_by(bras, mois) %>%
+  summarise(utilite_moy = mean(utilite, na.rm = TRUE))
 
+ggplot(df_evol, aes(x = mois, y = utilite_moy, color = bras, group = bras)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  scale_color_manual(values = c("A" = "red", "B" = "green"), 
+                     labels = c("A" = "Chirurgie (A)", "B" = "Médicament (B)")) +
+  scale_x_continuous(breaks = c(0, 1, 6, 12)) +
+  ylim(0, 1) + 
+  labs(
+    title = "Évolution de la Qualité de Vie sur 1 an",
+    x = "Mois",
+    y = "Score d'utilité moyen",
+    color = "Stratégie"
+  ) +
+  theme_minimal()
 # Comparaison rapide des moyennes par bras
 aggregate(cbind(cout_total, qaly_total) ~ bras, data = df_final, mean)
+
+
+hist(df_final$cout_total, main= "distribution des coûts", xlab= "coûts totaux")
 
 # Modèle 1 : gamma
 model_cout_simple <- glm(cout_total ~ bras, 
@@ -223,19 +245,60 @@ model_cout_invG <- glm(cout_total ~ bras,
 summary(model_cout_invG)
 margins(model_cout_invG)
 
+AIC(model_cout_ajuste, model_cout_simple)
+AIC(model_cout_ajuste, model_cout_invG)
+
 # Le meilleur modèle est le premier ( aic plus bas). Les autres variables autres que le bras
 # n'influence pas le cout. La distribution est bien gamma.
 #En moyenne, un individu du bras B coute 9308 euros de moins mais qaly plus faible
 
+shapiro.test(residuals(model_qaly_gauss)) 
+hist(df_final$qaly_total, main= "distribution des QALY", xlab= "QALY totaux")
 
 # Modèle GLM Gaussien pour l'efficacité 
+
 model_qaly_gauss <- glm(qaly_total ~ bras, 
+                        
                         data = df_final, 
+                        
                         family = gaussian(link = "identity"))
 
+
 summary(model_qaly_gauss)
-margins(model_qaly_gauss)
-shapiro.test(residuals(model_qaly_gauss)) #les qaly suivent bien une loi normale.
+
+# Modèle GLM Gaussien ajusté au sexe pour l'efficacité 
+
+model_qaly_gauss2 <- glm(qaly_total ~ bras + sexe, 
+                        
+                        data = df_final, 
+                        
+                        family = gaussian(link = "identity"))
+
+
+summary(model_qaly_gauss2)
+
+# Modèle Log-normal pour les QALY ( ne fonctionne que parce que les QALY sont >0)
+model_qaly_lognorm <- glm(qaly_total ~ bras, 
+                          data = df_final, 
+                          family = gaussian(link = "log"))
+
+summary(model_qaly_lognorm)
+
+# Modèle Beta pour les QALY
+n <- nrow(df_final)
+df_final$qaly_adj <- (df_final$qaly_total * (n - 1) + 0.5) / n
+
+model_qaly_beta <- betareg(qaly_adj ~ bras, data = df_final)
+
+summary(model_qaly_beta)
+
+# Comparaison des AIC
+AIC(model_qaly_gauss, model_qaly_lognorm)
+AIC(model_qaly_lognorm,model_qaly_beta)
+AIC(model_qaly_gauss, model_qaly_gauss2)
+
+
+
 # On perd 0.13 qaly en moyenne dans le bras b
 
 delta_E <- coef(model_qaly_gauss)["brasB"]
