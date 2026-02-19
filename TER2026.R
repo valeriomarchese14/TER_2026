@@ -196,7 +196,6 @@ summarise(
   cout_total = sum(cout.baseline + cout.aprés, na.rm = TRUE),
   qaly_total = sum(qaly_periode, na.rm = TRUE) # Somme des QALYs de chaque période
 )
-
 #Calcul des moyennes d'utilité par bras et par mois
 df_evol <- df_complet %>%
   group_by(bras, mois) %>%
@@ -405,3 +404,10 @@ ggplot(data = df_ceac, aes(x = k, y = prob, color = strategy_id)) +
     panel.grid.minor = element_blank()
   )
 
+curve(dbeta(x, shape1 = 8, shape2 = 4), 
+      from = 0, to = 1,
+      main= "exemple de distribution de loi Bêta ( 8,4)")
+
+curve(dgamma(x, shape = 15, rate =  0.0005), 
+      from = 0, to = 80000,
+      main= "exemple de distribution de loi Gamma( 15,0.0005)")
